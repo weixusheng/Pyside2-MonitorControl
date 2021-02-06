@@ -4,5 +4,5 @@
 # 运行环境
 Python 3.8.5
 ## 依赖包
-PySide2            5.15.2
+PySide2            5.15.2<br>
 monitorcontrol     2.3.0
