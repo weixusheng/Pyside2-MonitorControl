@@ -1,0 +1,17 @@
+pyinstaller main_run.py -w  --icon="star.ico" --hidden-import PySide2.QtXml
+
+
+-w -F 打包为一个文件
+
+参数 --workpath 指定了制作过程中临时文件的存放目录
+参数 --distpath 指定了最终的可执行文件目录所在的父目录
+库文件存在一个文件夹中
+--runtime-hook="runtimehook1.py"
+图形界面程序打包
+--noconsole 
+程序图标
+--icon="star.ico"
+导入动态库
+--hidden-import PySide2.QtXml
+
+pyinstaller byhy.py --workpath e:\pybuild  --distpath e:\pydist   --icon="star.ico" --hidden-import PySide2.QtXml

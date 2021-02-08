@@ -1,6 +1,5 @@
 from PySide2.QtGui import QIcon
 from PySide2.QtWidgets import QApplication
-
 from main_script import Stats, TrayIcon
 
 app = QApplication([])

@@ -6,6 +6,7 @@ from threading import Thread
 from monitorcontrol import get_monitors
 import time
 
+
 # 全局变量
 last_time = 0
 global_monitor = get_monitors()
@@ -15,9 +16,10 @@ class MySignals(QObject):
     main_signal = Signal(int, int)
 
 
-class Stats:
+class Stats():
 
     def __init__(self):
+        # 引入ui文件
         self.ui = QUiLoader().load('main_ui.ui')
         with global_monitor[0]:
             s_contrast = global_monitor[0].get_contrast()
@@ -28,7 +30,7 @@ class Stats:
         # 初始化显示
         self.ui.lcdNumber.display(s_luminance)
         self.ui.lcdNumber_2.display(s_contrast)
-        # 建立信号量
+        # 建立信号量实例(子线程改变主界面,防止画面阻塞)
         self.global_ms = MySignals()
         # 绑定事件
         self.ui.pushButton.clicked.connect(self.minimize_totray)
@@ -90,17 +92,23 @@ class TrayIcon(QSystemTrayIcon):
         self.menu.addAction(self.quitAction)
         self.setContextMenu(self.menu)
         # 设置图标
-        self.setIcon(QIcon("..\\monitor_control\\star.png"))
+        self.setIcon(QIcon("star.png"))
         self.icon = self.MessageIcon()
         # 把鼠标点击图标的信号和槽连接
         self.activated.connect(self.onIconClicked)
 
     def open_night(self):
+        # 系统提示弹窗
         self.showMessage("Message", "已开启夜晚模式", self.icon)
+        # 实现过程
         global global_monitor
         with global_monitor[0]:
             global_monitor[0].set_contrast(50)
             global_monitor[0].set_luminance(35)
+        self.ui.horizontalSlider.setValue(35)
+        self.ui.horizontalSlider_2.setValue(50)
+        self.ui.lcdNumber.display(35)
+        self.ui.lcdNumber_2.display(50)
 
     def open_light(self):
         self.showMessage("Message", "已开启白天模式", self.icon)
@@ -108,16 +116,29 @@ class TrayIcon(QSystemTrayIcon):
         with global_monitor[0]:
             global_monitor[0].set_contrast(80)
             global_monitor[0].set_luminance(75)
+        self.ui.horizontalSlider.setValue(75)
+        self.ui.horizontalSlider_2.setValue(80)
+        self.ui.lcdNumber.display(75)
+        self.ui.lcdNumber_2.display(80)
 
     def show_window(self):
         # 若是最小化，则先正常显示窗口，再变为活动窗口（暂时显示在最前面）
         self.ui.showNormal()
         self.ui.activateWindow()
+        self.ui.setWindowFlags(Qt.Window)
+        self.ui.show()
 
     def quitapp(self):
         QApplication.quit()
 
-    # 鼠标点击icon传递的信号会带有一个整形的值，1是表示单击右键，2是双击，3是单击左键，4是用鼠标中键点击
+    # 点击托盘图标事件
+    '''
+    鼠标点击icon传递的信号会带有一个整形的值
+    1是表示单击右键
+    2是双击
+    3是单击左键
+    4是用鼠标中键点击
+    '''
     def onIconClicked(self, reason):
         if reason == 2 or reason == 3:
             # self.showMessage("Message", "skr at here", self.icon)
