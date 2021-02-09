@@ -4,38 +4,66 @@ from PySide2.QtCore import Signal, QObject, Qt
 from PySide2.QtGui import QIcon
 from threading import Thread
 from monitorcontrol import get_monitors
+import screen_brightness_control as sbc
 import time
 
 
 # 全局变量
 last_time = 0
 global_monitor = get_monitors()
+monitor_all = sbc.get_brightness()
+# 当前模式
+mode = 0
+'''
+0: 只有笔记本显示器
+1: 只有外接显示器
+2: 有外接显示器
+'''
 
 
 class MySignals(QObject):
     main_signal = Signal(int, int)
 
 
-class Stats():
+class Stats:
 
     def __init__(self):
         # 引入ui文件
         self.ui = QUiLoader().load('main_ui.ui')
-        with global_monitor[0]:
-            s_contrast = global_monitor[0].get_contrast()
-            s_luminance = global_monitor[0].get_luminance()
-        # 初始化划轴位置
-        self.ui.horizontalSlider.setValue(s_luminance)
-        self.ui.horizontalSlider_2.setValue(s_contrast)
-        # 初始化显示
-        self.ui.lcdNumber.display(s_luminance)
-        self.ui.lcdNumber_2.display(s_contrast)
+        monitor_num = len(monitor_all)
+        global mode
+        global global_monitor
+        if monitor_num == 2:
+            mode = 2
+            self.ui.label_4.setText("当前状态:[双显示屏]")
+            self.ui.groupBox.setEnabled(True)
+            # 更新外接亮度
+            self.ui.horizontalSlider.setValue(monitor_all[0])
+            self.ui.lcdNumber_3.display(monitor_all[0])
+            # 更新笔记本亮度
+            self.ui.horizontalSlider_3.setValue(monitor_all[1])
+            self.ui.lcdNumber.display(monitor_all[1])
+            # 探测更新显示器对比度
+            with global_monitor[1]:
+                s_contrast = global_monitor[1].get_contrast()
+            self.ui.horizontalSlider_2.setValue(s_contrast)
+            self.ui.lcdNumber_2.display(s_contrast)
+        else:  # 只有笔记本
+            mode = 0
+            self.ui.horizontalSlider_3.setValue(monitor_all[0])
+            self.ui.lcdNumber.display(monitor_all[0])
+
         # 建立信号量实例(子线程改变主界面,防止画面阻塞)
         self.global_ms = MySignals()
         # 绑定事件
+        self.ui.pushButton_2.clicked.connect(self.minimize_totray)
         self.ui.pushButton.clicked.connect(self.minimize_totray)
+        # 外接亮度
         self.ui.horizontalSlider.valueChanged.connect(lambda: self.update_shit(1))
+        # 外接对比度
         self.ui.horizontalSlider_2.valueChanged.connect(lambda: self.update_shit(2))
+        # 笔记本亮度
+        self.ui.horizontalSlider_3.valueChanged.connect(lambda: self.update_shit(3))
         self.global_ms.main_signal.connect(self.main_thread)
 
     def main_thread(self, index, value):
@@ -43,15 +71,27 @@ class Stats():
         now_time = time.time()
         global global_monitor
         if now_time-last_time > 0.1:
-            if index == 0:
+            if index == 0:  # luminance
+                if mode == 1:  # 只有外显
+                    with global_monitor[0]:
+                        global_monitor[0].set_luminance(value)
+                else:
+                    with global_monitor[1]:
+                        global_monitor[1].set_luminance(value)
                 self.ui.lcdNumber.display(value)
-                with global_monitor[0]:
-                    global_monitor[0].set_luminance(value)
                 last_time = now_time
-            else:
+            elif index == 1:   # contrast
+                if mode == 1:
+                    with global_monitor[0]:
+                        global_monitor[0].set_contrast(value)
+                else:
+                    with global_monitor[1]:
+                        global_monitor[1].set_contrast(value)
                 self.ui.lcdNumber_2.display(value)
-                with global_monitor[0]:
-                    global_monitor[0].set_contrast(value)
+                last_time = now_time
+            else:  # index = 2 (控制笔记本)
+                self.ui.lcdNumber_3.display(value)
+                sbc.set_brightness(value, display=0)
                 last_time = now_time
         else:
             pass
@@ -61,11 +101,31 @@ class Stats():
             if shit == 1:
                 new_data = self.ui.horizontalSlider.value()
                 self.global_ms.main_signal.emit(0, new_data)
-            else:
+            elif shit == 2:
                 new_data = self.ui.horizontalSlider_2.value()
                 self.global_ms.main_signal.emit(1, new_data)
+            else:
+                new_data = self.ui.horizontalSlider_3.value()
+                self.global_ms.main_signal.emit(2, new_data)
         thread = Thread(target=threadFunc)
         thread.start()
+
+    def set_mprimary(self):
+        global mode
+        mode = 1
+        self.ui.label_4.setText("当前状态:[Monitor Only]")
+        self.ui.groupBox.setEnabled(True)
+        # 数值归位
+        self.ui.horizontalSlider_3.setValue(0)
+        self.ui.lcdNumber_3.display(0)
+        self.ui.groupBox_2.setEnabled(False)  # 笔显状态
+        with global_monitor[0]:
+            s_contrast = global_monitor[0].get_contrast()
+        s_luminance = monitor_all[0]
+        self.ui.horizontalSlider_1.setValue(s_luminance)
+        self.ui.lcdNumber_1.display(s_luminance)
+        self.ui.horizontalSlider_2.setValue(s_contrast)
+        self.ui.lcdNumber_2.display(s_contrast)
 
     def minimize_totray(self):
         self.ui.setWindowFlags(Qt.SplashScreen | Qt.FramelessWindowHint)
@@ -82,13 +142,17 @@ class TrayIcon(QSystemTrayIcon):
     def createMenu(self):
         self.menu = QMenu()
         self.showAction1 = QAction("打开", self, triggered=self.show_window)
-        self.showAction2 = QAction("夜晚模式", self, triggered=self.open_night)
-        self.showAction3 = QAction("白天模式", self, triggered=self.open_light)
+        self.showAction2 = QAction("夜晚模式-单显示器", self, triggered=lambda:self.adjust_tray(0,1))
+        self.showAction3 = QAction("白天模式-单显示器", self, triggered=lambda:self.adjust_tray(1,1))
+        self.showAction4 = QAction("夜晚模式", self, triggered=lambda: self.adjust_tray(0,2))
+        self.showAction5 = QAction("白天模式", self, triggered=lambda:self.adjust_tray(1,2))
         self.quitAction = QAction("退出", self, triggered=self.quitapp)
         # 托盘增加选项
         self.menu.addAction(self.showAction1)
         self.menu.addAction(self.showAction2)
         self.menu.addAction(self.showAction3)
+        self.menu.addAction(self.showAction4)
+        self.menu.addAction(self.showAction5)
         self.menu.addAction(self.quitAction)
         self.setContextMenu(self.menu)
         # 设置图标
@@ -96,30 +160,31 @@ class TrayIcon(QSystemTrayIcon):
         self.icon = self.MessageIcon()
         # 把鼠标点击图标的信号和槽连接
         self.activated.connect(self.onIconClicked)
-
-    def open_night(self):
-        # 系统提示弹窗
-        self.showMessage("Message", "已开启夜晚模式", self.icon)
-        # 实现过程
+    def adjust_tray(self, index, mode):
         global global_monitor
-        with global_monitor[0]:
-            global_monitor[0].set_contrast(50)
-            global_monitor[0].set_luminance(35)
-        self.ui.horizontalSlider.setValue(35)
-        self.ui.horizontalSlider_2.setValue(50)
-        self.ui.lcdNumber.display(35)
-        self.ui.lcdNumber_2.display(50)
+        if index == 0:
+            str = "已开启夜晚模式"
+            sc = 50
+            sl = 35
+            pl = 40
+        else:
+            str = "已开启白天模式"
+            sc = 80
+            sl = 75
+            pl = 60
 
-    def open_light(self):
-        self.showMessage("Message", "已开启白天模式", self.icon)
-        global global_monitor
-        with global_monitor[0]:
-            global_monitor[0].set_contrast(80)
-            global_monitor[0].set_luminance(75)
-        self.ui.horizontalSlider.setValue(75)
-        self.ui.horizontalSlider_2.setValue(80)
-        self.ui.lcdNumber.display(75)
-        self.ui.lcdNumber_2.display(80)
+        if mode == 2:  # 双显示器
+            sbc.set_brightness(pl, display=0)
+            self.ui.horizontalSlider_3.setValue(pl)
+        shit = mode-1
+        with global_monitor[shit]:
+            global_monitor[shit].set_luminance(sl)
+            global_monitor[shit].set_contrast(sc)
+        self.ui.horizontalSlider.setValue(sl)
+        self.ui.horizontalSlider_2.setValue(sc)
+        self.ui.lcdNumber.display(sl)
+        self.ui.lcdNumber_2.display(sc)
+        self.showMessage("Message", str, self.icon)
 
     def show_window(self):
         # 若是最小化，则先正常显示窗口，再变为活动窗口（暂时显示在最前面）
